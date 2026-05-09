@@ -1,5 +1,5 @@
 <script>
-import { supabase, generatePassword, isValidPassword } from '../../supabase';
+import { api } from '../../services/api';
 
 export default {
     name: 'SenhaList',
@@ -26,13 +26,10 @@ export default {
     methods: {
         async loadSenhas() {
             this.loading = true;
-            const { data, error } = await supabase
-                .from('senhas')
-                .select('*')
-                .eq('setor_id', this.setor.id)
-                .order('created_at', { ascending: false });
-            if (!error) {
-                this.senhas = data;
+            try {
+                this.senhas = await api.listSenhasBySetor(this.setor.id);
+            } catch (error) {
+                this.error = error?.message || 'Erro ao carregar senhas';
             }
             this.loading = false;
         },
@@ -47,31 +44,11 @@ export default {
                 return;
             }
 
-            const existingSenhas = new Set((await supabase.from('senhas').select('senha')).data?.map(s => s.senha) || []);
-            const newSenhas = [];
-
-            for (let i = 0; i < quantity; i++) {
-                let newSenha = generatePassword();
-                let exists = true;
-
-                while (exists) {
-                    if (existingSenhas.has(newSenha)) {
-                        newSenha = generatePassword();
-                    } else {
-                        exists = false;
-                        existingSenhas.add(newSenha);
-                    }
-                }
-
-                newSenhas.push({
-                    senha: newSenha,
-                    setor_id: this.setor.id
-                });
-            }
-
-            if (newSenhas.length > 0) {
-                await supabase.from('senhas').insert(newSenhas);
+            try {
+                await api.generateSenhas(this.setor.id, quantity);
                 await this.loadSenhas();
+            } catch (error) {
+                alert(error?.message || 'Erro ao gerar senhas');
             }
 
             this.geracaoLoading = false;
@@ -79,10 +56,7 @@ export default {
         async deleteSenha(senha) {
             if (!confirm(`Excluir a senha "${senha.senha}"?`)) return;
 
-            await supabase
-                .from('senhas')
-                .delete()
-                .eq('id', senha.id);
+            await api.deleteSenha(senha.id);
 
             await this.loadSenhas();
         },

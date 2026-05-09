@@ -1,5 +1,5 @@
 <script>
-import { supabase } from '../../supabase';
+import { api } from '../../services/api';
 
 export default {
     name: 'SetorList',
@@ -22,25 +22,10 @@ export default {
     methods: {
         async loadSetores() {
             this.loading = true;
-            const { data, error } = await supabase
-                .from('setores')
-                .select('*')
-                .order('nome');
-
-            const { data: senhasData, error: senhasError } = await supabase
-                .from('senhas')
-                .select('setor_id');
-
-            if (!error && !senhasError) {
-                const counts = (senhasData || []).reduce((acc, item) => {
-                    acc[item.setor_id] = (acc[item.setor_id] || 0) + 1;
-                    return acc;
-                }, {});
-
-                this.setores = (data || []).map((setor) => ({
-                    ...setor,
-                    quantidade_senhas: counts[setor.id] || 0
-                }));
+            try {
+                this.setores = await api.listSetores();
+            } catch (error) {
+                this.error = error?.message || 'Erro ao carregar setores';
             }
             this.loading = false;
         },
@@ -63,14 +48,9 @@ export default {
             }
 
             if (this.editingSetor) {
-                await supabase
-                    .from('setores')
-                    .update({ nome: this.form.nome })
-                    .eq('id', this.editingSetor.id);
+                await api.updateSetor(this.editingSetor.id, this.form.nome);
             } else {
-                await supabase
-                    .from('setores')
-                    .insert([{ nome: this.form.nome }]);
+                await api.createSetor(this.form.nome);
             }
 
             await this.loadSetores();
@@ -79,10 +59,7 @@ export default {
         async deleteSetor(setor) {
             if (!confirm(`Excluir o setor "${setor.nome}"?`)) return;
 
-            await supabase
-                .from('setores')
-                .delete()
-                .eq('id', setor.id);
+            await api.deleteSetor(setor.id);
 
             await this.loadSetores();
         },
@@ -113,7 +90,7 @@ export default {
                 <tr>
                     <th>ID</th>
                     <th>Nome do Setor</th>
-                    <th>Senhas Criadas</th>
+                    <th>Senhas Respondidas</th>
                     <th>Ações</th>
                 </tr>
             </thead>
@@ -121,7 +98,7 @@ export default {
                 <tr v-for="setor in setores" :key="setor.id">
                     <td class="id-cell">{{ setor.id }}</td>
                     <td>{{ setor.nome }}</td>
-                    <td>{{ setor.quantidade_senhas }}</td>
+                    <td>{{ setor.senhas_respondidas }}/{{ setor.quantidade_senhas }}</td>
                     <td class="actions">
                         <button class="action-btn edit" @click="openModal(setor)">
                             Editar

@@ -31,14 +31,14 @@ export default {
             default: 0
         }
     },
-    emits: ['click']
+    emits: ['click', 'verResultado']
 };
 </script>
 
 <template>
         <div
         :class="['form-card', status, { concluido, emBreve, bloqueado }]"
-        @click="status !== 'bloqueado' && !emBreve && !bloqueado && $emit('click')"
+        @click="status !== 'bloqueado' && !emBreve && !bloqueado && !concluido && $emit('click')"
     >
         <div class="card-header">
             <div class="card-status">
@@ -110,6 +110,7 @@ export default {
 .form-card.concluido {
     border-color: #34a853;
     background: #f8fdf8;
+    cursor: default;
 }
 
 .form-card.emBreve {

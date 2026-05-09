@@ -1,58 +1,11 @@
 <script>
-import { supabase } from '../supabase';
+import { api } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import { useQuestionnaireStore } from '../stores/questionnaire';
-import ProgressBar from '../components/common/ProgressBar.vue';
-import { perguntasPreferencias } from '../data/perguntasPreferencias';
-
-const STEPS = [
-    {
-        id: 'mais_20',
-        fase: 'Mais Importantes',
-        titulo: 'Selecione as 20 mais importantes',
-        descricao: 'Das 46 afirmacoes, escolha as 20 que sao mais importantes para a organizacao.',
-        required: 20,
-        source: 'all'
-    },
-    {
-        id: 'mais_10',
-        fase: 'Mais Importantes',
-        titulo: 'Selecione as 10 mais importantes',
-        descricao: 'Das 20 que voce escolheu, selecione as 10 que considera mais importantes de todas.',
-        required: 20,
-        source: 'all'
-    },
-    {
-        id: 'mais_10',
-        fase: 'Mais Importantes',
-        titulo: 'Selecione as 10 mais importantes',
-        descricao: 'Das 20 que voce escolheu, selecione as 10 que considera mais importantes de todas.',
-        required: 10,
-        source: 'mais20'
-    },
-    {
-        id: 'menos_20',
-        fase: 'Menos Importantes',
-        titulo: 'Selecione as 20 menos importantes',
-        descricao: 'Das 46 afirmacoes, escolha as 20 que sao menos importantes para a organizacao.',
-        required: 20,
-        source: 'all'
-    },
-    {
-        id: 'menos_10',
-        fase: 'Menos Importantes',
-        titulo: 'Selecione as 10 menos importantes',
-        descricao: 'Das 20 que voce escolheu, selecione as 10 que considera menos importantes de todas.',
-        required: 10,
-        source: 'menos20'
-    }
-];
 
 export default {
     name: 'PreferenciasView',
-    components: {
-        ProgressBar
-    },
+    components: {},
     setup() {
         return {
             authStore: useAuthStore(),
@@ -61,56 +14,98 @@ export default {
     },
     data() {
         return {
-            steps: STEPS,
             loading: true,
             saving: false,
             showingSuccess: false,
             perguntas: [],
-            currentStepIndex: 0,
+            rounds: [[], [], [], []],
+            roundIndex: 0,
             selectedIds: [],
-            stageSelections: {
-                mais20: [],
-                mais10: [],
-                menos20: [],
-                menos10: []
-            },
             savingMessage: 'Salvando classificacao...',
             showModal: true,
-            showMaxAlert: false
         };
     },
     computed: {
-        currentStep() {
-            return this.steps[this.currentStepIndex];
+        roundLabel() {
+            const labels = ['Rodada 1 de 4', 'Rodada 2 de 4', 'Rodada 3 de 4', 'Rodada 4 de 4'];
+            return labels[this.roundIndex] || '';
         },
-        progresso() {
-            if (this.showingSuccess) {
-                return 100;
+        roundTitle() {
+            if (this.roundIndex === 0) return 'Para o seu setor ser orientado a dados ele deve:';
+            if (this.roundIndex === 1) return 'Dentre as que você marcou, quais são as mais importantes?';
+            if (this.roundIndex === 2) return 'Para o seu setor ser orientado a dados ele deve:';
+            return 'Dentre as que você marcou, quais são as menos importantes?';
+        },
+        roundDescription() {
+            if (this.roundIndex === 0) {
+                return 'Na sua visão, para você e seus colegas de trabalhos tomarem decisões na empresa considerando as três sentenças acima, quais afirmações são mais importantes para a Tutiplast implementar nos próximos meses?';
             }
-
-            return Math.round((this.currentStepIndex / this.steps.length) * 100);
+            if (this.roundIndex === 1) {
+                return `Agora refine: dentre as que você marcou, destaque as ${this.requiredCount.min} mais importantes.`;
+            }
+            if (this.roundIndex === 2) {
+                return 'Na sua visão, quais práticas terão o menor impacto na Tutiplast?';
+            }
+            return `Por fim, dentre as que você marcou, escolha as ${this.requiredCount.min} menos relevantes.`;
         },
         availableQuestions() {
-            if (!this.currentStep) {
-                return [];
+            if (this.roundIndex === 0 || this.roundIndex === 2) {
+                return this.perguntas;
             }
-
-            if (this.currentStep.source === 'mais20') {
-                return this.perguntas.filter((item) => this.stageSelections.mais20.includes(item.id));
-            }
-
-            if (this.currentStep.source === 'menos20') {
-                return this.perguntas.filter((item) => this.stageSelections.menos20.includes(item.id));
-            }
-
-            return this.perguntas;
+            const source = this.rounds[this.roundIndex - 1];
+            return this.perguntas.filter((p) => source.includes(p.id));
+        },
+        requiredCount() {
+            if (this.roundIndex === 0) return { min: 2, max: 20 };
+            if (this.roundIndex === 1) return { min: Math.floor(this.rounds[0].length / 2), max: Math.floor(this.rounds[0].length / 2) };
+            if (this.roundIndex === 2) return { min: 2, max: 20 };
+            return { min: Math.floor(this.rounds[2].length / 2), max: Math.floor(this.rounds[2].length / 2) };
         },
         canAdvance() {
-            return this.selectedIds.length === (this.currentStep?.required || 0);
+            const len = this.selectedIds.length;
+            const req = this.requiredCount;
+            return len >= req.min && len <= req.max;
         },
         totalSelecionadas() {
             return this.selectedIds.length;
-        }
+        },
+        reachedMax() {
+            return (this.roundIndex === 0 || this.roundIndex === 2) && this.selectedIds.length >= this.requiredCount.max;
+        },
+        stepRequiredDisplay() {
+            if (this.roundIndex === 0 || this.roundIndex === 2) return '';
+            return `${this.requiredCount.min}`;
+        },
+        buttonText() {
+            if (this.saving) return '';
+            if (this.roundIndex === 3) return 'Finalizar Pesquisa';
+            return 'Continuar';
+        },
+        weightMap() {
+            const w = {};
+            for (const p of this.perguntas) w[p.id] = 3;
+            if (this.roundIndex >= 1) {
+                for (const id of this.rounds[0]) if (id in w) w[id] = 4;
+            }
+            if (this.roundIndex >= 2) {
+                for (const id of this.rounds[1]) if (id in w) w[id] = 5;
+            }
+            if (this.roundIndex >= 3) {
+                for (const id of this.rounds[2]) {
+                    if (id in w) w[id] = w[id] !== 3 ? 0 : 2;
+                }
+            }
+            if (this.roundIndex >= 4) {
+                for (const id of this.rounds[3]) {
+                    if (id in w) w[id] = w[id] === 0 ? 0 : 1;
+                }
+            }
+            return w;
+        },
+        progresso() {
+            if (this.showingSuccess) return 100;
+            return Math.round(((this.roundIndex) / 4) * 100);
+        },
     },
     async mounted() {
         this.authStore.checkSession();
@@ -118,14 +113,11 @@ export default {
             this.$router.push('/login-respondente');
             return;
         }
-
         await this.authStore.refreshStatus();
-
         if (this.authStore.formularioPreferenciasConcluido) {
             this.$router.push('/participante');
             return;
         }
-
         await this.loadQuestions();
         this.restoreProgress();
         this.loading = false;
@@ -135,206 +127,81 @@ export default {
             return `preferencias_${this.authStore.senhaId}`;
         },
         async loadQuestions() {
-            const { data, error } = await supabase
-                .from('perguntas_preferencias')
-                .select('*')
-                .order('ordem');
-
-            if (error || !data || data.length === 0) {
-                this.perguntas = perguntasPreferencias.map((item, index) => ({
-                    ...item,
-                    ordem: index + 1
-                }));
-                return;
-            }
-
-            this.perguntas = data.map((item, index) => ({
-                id: item.id,
-                descricao: item.pergunta || item.descricao,
-                peso: Number(item.peso || 3),
-                ordem: item.ordem || index + 1
+            let data = [];
+            try { data = await api.listPerguntasPreferencias(); } catch (e) { /* ignore */ }
+            this.perguntas = (data || []).map((item, index) => ({
+                id: item.id, descricao: item.pergunta || item.descricao, ordem: item.ordem || index + 1
             }));
         },
         restoreProgress() {
             const saved = localStorage.getItem(this.progressKey());
-            if (!saved) {
-                return;
-            }
-
+            if (!saved) return;
             try {
-                const parsed = JSON.parse(saved);
-                this.currentStepIndex = parsed.currentStepIndex || 0;
-                this.selectedIds = parsed.selectedIds || [];
-                this.stageSelections = parsed.stageSelections || this.stageSelections;
-
-                if (Array.isArray(parsed.perguntas) && parsed.perguntas.length === this.perguntas.length) {
-                    const pesoMap = new Map(parsed.perguntas.map((item) => [item.id, item.peso]));
-                    this.perguntas = this.perguntas.map((item) => ({
-                        ...item,
-                        peso: Number(pesoMap.get(item.id) ?? item.peso)
-                    }));
-                }
-            } catch (error) {
-                console.error('Erro ao restaurar progresso de preferencias:', error);
-            }
+                const p = JSON.parse(saved);
+                this.rounds = p.rounds || [[], [], [], []];
+                this.roundIndex = p.roundIndex || 0;
+                this.selectedIds = p.selectedIds || [];
+            } catch (e) { /* ignore */ }
         },
         persistProgress() {
             localStorage.setItem(this.progressKey(), JSON.stringify({
-                currentStepIndex: this.currentStepIndex,
-                selectedIds: this.selectedIds,
-                stageSelections: this.stageSelections,
-                perguntas: this.perguntas.map((item) => ({ id: item.id, peso: item.peso }))
+                rounds: this.rounds, roundIndex: this.roundIndex, selectedIds: this.selectedIds,
             }));
         },
         toggleSelection(id) {
-            if (this.saving || this.showingSuccess) {
-                return;
-            }
-
+            if (this.saving || this.showingSuccess) return;
             if (this.selectedIds.includes(id)) {
                 this.selectedIds = this.selectedIds.filter((item) => item !== id);
                 this.persistProgress();
                 return;
             }
-
-            if (this.selectedIds.length >= this.currentStep.required) {
-                this.showMaxAlert = true;
+            if (this.selectedIds.length >= this.requiredCount.max) {
                 return;
             }
-
             this.selectedIds = [...this.selectedIds, id];
             this.persistProgress();
         },
-        applyCurrentStep() {
-            if (this.currentStep.id === 'mais_20') {
-                this.stageSelections.mais20 = [...this.selectedIds];
-                this.perguntas = this.perguntas.map((item) => ({
-                    ...item,
-                    peso: this.selectedIds.includes(item.id) ? 4 : item.peso
-                }));
-            }
-
-            if (this.currentStep.id === 'mais_10') {
-                this.stageSelections.mais10 = [...this.selectedIds];
-                this.perguntas = this.perguntas.map((item) => ({
-                    ...item,
-                    peso: this.selectedIds.includes(item.id) ? 5 : item.peso
-                }));
-            }
-
-            if (this.currentStep.id === 'menos_20') {
-                this.stageSelections.menos20 = [...this.selectedIds];
-                this.perguntas = this.perguntas.map((item) => {
-                    if (!this.selectedIds.includes(item.id)) {
-                        return item;
-                    }
-
-                    return {
-                        ...item,
-                        peso: item.peso === 3 ? 2 : 0
-                    };
-                });
-            }
-
-            if (this.currentStep.id === 'menos_10') {
-                this.stageSelections.menos10 = [...this.selectedIds];
-                this.perguntas = this.perguntas.map((item) => {
-                    if (!this.selectedIds.includes(item.id)) {
-                        return item;
-                    }
-
-                    return {
-                        ...item,
-                        peso: item.peso === 2 ? 1 : 0
-                    };
-                });
-            }
-        },
         async advanceStep() {
-            if (!this.canAdvance || this.saving) {
-                return;
-            }
+            if (!this.canAdvance || this.saving) return;
 
-            this.applyCurrentStep();
+            this.rounds[this.roundIndex] = [...this.selectedIds];
+            this.rounds = [...this.rounds];
 
-            if (this.currentStepIndex === this.steps.length - 1) {
+            if (this.roundIndex === 3) {
                 await this.finalizeSurvey();
                 return;
             }
 
-            this.currentStepIndex += 1;
+            this.roundIndex += 1;
             this.selectedIds = [];
             this.showModal = true;
             this.persistProgress();
         },
-        async verifySavedWeights() {
-            const expected = new Map(this.perguntas.map((item) => [item.id, String(item.peso)]));
-            const { data, error } = await supabase
-                .from('respostas_preferencias')
-                .select('pergunta_id, resposta')
-                .eq('senha_id', this.authStore.senhaId)
-                .eq('setor_id', this.authStore.setorId)
-                .in('pergunta_id', this.perguntas.map((item) => item.id));
-
-            if (error) {
-                throw error;
-            }
-
-            if (!data || data.length !== this.perguntas.length) {
-                return false;
-            }
-
-            return data.every((item) => expected.get(item.pergunta_id) === String(item.resposta));
-        },
         async finalizeSurvey() {
             this.saving = true;
-            this.savingMessage = 'Salvando pesos finais da pesquisa...';
-
+            this.savingMessage = 'Salvando classificacao final...';
             try {
-                const rows = this.perguntas.map((item) => ({
-                    senha_id: this.authStore.senhaId,
-                    setor_id: this.authStore.setorId,
-                    pergunta_id: item.id,
-                    resposta: String(item.peso),
-                    data_resposta: new Date().toISOString()
-                }));
-
-                const { error } = await supabase
-                    .from('respostas_preferencias')
-                    .upsert(rows, { onConflict: 'senha_id,pergunta_id' });
-
-                if (error) {
-                    throw error;
-                }
-
-                this.savingMessage = 'Verificando gravacao no banco de dados...';
-                const verified = await this.verifySavedWeights();
-
+                await api.submitPreferenciasClassificacao({
+                    senha_id: Number(this.authStore.senhaId),
+                    setor_id: Number(this.authStore.setorId),
+                    rounds: this.rounds,
+                });
+                this.savingMessage = 'Verificando gravacao...';
+                let verified = false;
+                try {
+                    await this.authStore.refreshStatus();
+                    verified = this.authStore.formularioPreferenciasConcluido;
+                } catch (e) { /* retry */ }
                 if (!verified) {
                     await new Promise((resolve) => setTimeout(resolve, 1000));
-                    const retryVerified = await this.verifySavedWeights();
-                    if (!retryVerified) {
-                        throw new Error('Falha na verificacao das respostas de preferencias.');
-                    }
+                    await this.authStore.refreshStatus();
                 }
-
-                const { error: statusError } = await supabase
-                    .from('senhas')
-                    .update({
-                        formulario_preferencias_concluido: true,
-                        formulario_preferencias_concluido_em: new Date().toISOString()
-                    })
-                    .eq('id', this.authStore.senhaId);
-
-                if (statusError) {
-                    throw new Error('As preferencias foram gravadas, mas o status da senha nao foi atualizado.');
-                }
-
                 this.authStore.setFormularioStatus('preferencias', true);
                 localStorage.removeItem(this.progressKey());
-                this.showingSuccess = true;
+                this.questionnaireStore.resetFormulario();
+                this.$router.push(this.questionnaireStore.getProximoFormularioPendente());
             } catch (error) {
-                console.error('Erro ao finalizar preferencias:', error);
+                console.error(error);
                 alert(error?.message || 'Erro ao salvar preferencias.');
             } finally {
                 this.saving = false;
@@ -342,32 +209,22 @@ export default {
         },
         goToParticipante() {
             this.questionnaireStore.resetFormulario();
-            this.$router.push('/participante');
+            this.$router.push(this.questionnaireStore.getProximoFormularioPendente());
         },
-        closeModal() {
-            this.showModal = false;
-        },
-        closeMaxAlert() {
-            this.showMaxAlert = false;
-        },
-        sair() {
-            this.authStore.logout();
-            this.$router.push('/');
-        }
+        closeModal() { this.showModal = false; },
+        closeMaxAlert() { this.showMaxAlert = false; },
+        sair() { this.authStore.logout(); this.$router.push('/'); },
+        voltar() { this.$router.push('/participante'); }
     }
 };
 </script>
 
 <template>
     <div class="preferencias-container">
-        <header class="preferencias-header">
-            <div class="header-top">
-                <div>
-                    <span class="header-badge">Pesquisa Preferencial</span>
-                    <h1 class="header-title">Formulário de Preferências</h1>
-                    <p class="header-subtitle">Senha: {{ authStore.senhaCodigo }} | Setor: {{ authStore.setorNome }}</p>
-                </div>
-                <button class="exit-btn" @click="sair" :disabled="saving">Sair</button>
+        <header class="navbar">
+            <div class="navbar-row">
+                <button class="navbar-btn" @click="voltar" :disabled="saving">← Voltar</button>
+                <span class="navbar-badge">Preferencias</span>
             </div>
         </header>
 
@@ -378,71 +235,63 @@ export default {
                 <Teleport to="body">
                     <div v-if="showModal && !showingSuccess" class="modal-overlay" @click.self="closeModal">
                         <div class="modal-content">
-                            <span :class="['modal-badge', currentStep.fase === 'Mais Importantes' ? 'badge-mais' : 'badge-menos']">
-                                {{ currentStep.fase }}
-                            </span>
-                            <h3 class="modal-title">{{ currentStep.titulo }}</h3>
-                            <p class="modal-description">{{ currentStep.descricao }}</p>
-                            <p class="modal-instruction">
-                                Você precisa selecionar exatamente <strong>{{ currentStep.required }}</strong> opções.
+                            <span class="modal-badge badge-ranking">{{ roundLabel }}</span>
+                            <template v-if="roundIndex === 0">
+                                <h3 class="modal-title">Na sua visão, quais afirmações são mais relevantes para a organização?</h3>
+                                <p class="modal-description">Marque as afirmações que, na sua percepção, mais representam as prioridades da organização.</p>
+                                <p class="modal-instruction">Marque as afirmações que você considera mais relevantes. Depois, refinaremos juntos.</p>
+                            </template>
+                            <template v-else>
+                                <h3 class="modal-title">{{ roundTitle }}</h3>
+                                <p class="modal-description">{{ roundDescription }}</p>
+                            </template>
+                            <p v-if="roundIndex !== 0" class="modal-instruction">
+                                <template v-if="roundIndex === 1">Agora destaque as {{ requiredCount.min }} mais importantes dentre as que você marcou.</template>
+                                <template v-else-if="roundIndex === 2">Agora o olhar muda: marque as afirmações que você considera menos prioritárias.</template>
+                                <template v-else>Escolha as {{ requiredCount.min }} menos relevantes dentre as que você marcou.</template>
                             </p>
                             <button class="modal-btn" @click="closeModal">Entendi</button>
                         </div>
                     </div>
-
-                    <div v-if="showMaxAlert" class="modal-overlay" @click.self="closeMaxAlert">
-                        <div class="modal-content">
-                            <div class="modal-alert-icon">
-                                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                                    <circle cx="24" cy="24" r="24" fill="#fff3cd"/>
-                                    <path d="M24 14v10M24 28v4" stroke="#856404" stroke-width="3" stroke-linecap="round"/>
-                                </svg>
-                            </div>
-                            <h3 class="modal-title">Limite atingido</h3>
-                            <p class="modal-description">
-                                Voce ja selecionou o maximo de <strong>{{ currentStep.required }}</strong> opcoes desta etapa.
-                            </p>
-                            <p class="modal-description">Para alterar, clique em uma opcao ja selecionada para remove-la.</p>
-                            <button class="modal-btn" @click="closeMaxAlert">Entendi</button>
-                        </div>
-                    </div>
                 </Teleport>
 
-                <ProgressBar
-                    :progresso="progresso"
-                    :label="`Etapa ${currentStepIndex + 1} de ${steps.length}`"
-                />
-
                 <section v-if="!showingSuccess" class="step-card">
-                    <span class="step-phase">{{ currentStep.fase }}</span>
-                    <h2 class="step-title">{{ currentStep.titulo }}</h2>
-                    <p class="step-description">{{ currentStep.descricao }}</p>
+                    <div class="title-row">
+                        <div>
+                            <span class="step-phase">{{ roundLabel }}</span>
+                            <template v-if="roundIndex === 0 || roundIndex === 2">
+                                <h2 class="step-title">{{ roundTitle }}</h2>
+                                <ol class="step-list">
+                                    <li>Ter todas as informações e dados disponíveis para tomar a decisão;</li>
+                                    <li>Dedicar um tempo significativo na análise de dados;</li>
+                                    <li>Tomar decisões a partir de dados ao invés de intuições e palpites;</li>
+                                </ol>
+                            </template>
+                            <h2 v-else class="step-title">{{ roundTitle }}</h2>
+                        </div>
+                        <button class="primary-btn" :disabled="!canAdvance || saving" @click="advanceStep">
+                            <span v-if="saving" class="spinner"></span>
+                            <span v-else>{{ buttonText }}</span>
+                        </button>
+                    </div>
+                    <p class="step-description">{{ roundDescription }}</p>
 
                     <div class="selection-summary">
-                        <span>Selecionadas: <strong>{{ totalSelecionadas }}</strong> / {{ currentStep.required }}</span>
+                        <span>Marcadas: <strong>{{ totalSelecionadas }}</strong><span v-if="stepRequiredDisplay"> de {{ stepRequiredDisplay }}</span></span>
+                        <span v-if="reachedMax" class="max-hint">Você já marcou várias — se quiser trocar, desmarque alguma.</span>
                     </div>
 
-                    <div class="question-list">
+                    <div class="question-grid">
                         <button
                             v-for="pergunta in availableQuestions"
-                            :key="pergunta.id"
+                            :key="pergunta.id + '_' + roundIndex"
                             type="button"
-                            :class="['question-item', { selected: selectedIds.includes(pergunta.id) }]"
+                            :class="['question-card', saving ? 'disabled' : '', reachedMax && !selectedIds.includes(pergunta.id) ? 'dimmed' : '']"
                             @click="toggleSelection(pergunta.id)"
                             :disabled="saving"
                         >
-                            <div class="question-meta">
-                                <span class="question-id">{{ pergunta.id }}</span>
-                                <span class="question-weight">Peso atual: {{ pergunta.peso }}</span>
-                            </div>
-                            <span class="question-text">{{ pergunta.descricao }}</span>
-                        </button>
-                    </div>
-
-                    <div class="actions">
-                        <button class="primary-btn" :disabled="!canAdvance || saving" @click="advanceStep">
-                            <span v-if="saving" class="spinner"></span>
-                            <span v-else>{{ currentStepIndex === steps.length - 1 ? 'Finalizar Pesquisa' : 'Continuar' }}</span>
+                            <span class="card-dot" :class="{ checked: selectedIds.includes(pergunta.id) }"></span>
+                            <span class="card-text">{{ pergunta.descricao }}</span>
                         </button>
                     </div>
 
@@ -451,8 +300,8 @@ export default {
 
                 <section v-else class="success-card">
                     <div class="success-icon">✓</div>
-                    <h2 class="success-title">Pesquisa de Preferências concluída</h2>
-                    <p class="success-text">A classificacao final foi registrada com sucesso. Este formulário nao pode mais ser respondido por esta senha.</p>
+                    <h2 class="success-title">Pesquisa de Preferencias concluida</h2>
+                    <p class="success-text">Sua classificação foi registrada com sucesso. Obrigado por participar!</p>
                     <button class="primary-btn" @click="goToParticipante">Voltar para Participante</button>
                 </section>
             </template>
@@ -461,343 +310,43 @@ export default {
 </template>
 
 <style scoped>
-.preferencias-container {
-    min-height: 100vh;
-    background: #f8f9fa;
-}
-
-.preferencias-header {
-    background: #2c5282;
-    color: #fff;
-    padding: 20px 24px;
-}
-
-.header-top {
-    max-width: 980px;
-    margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.header-badge {
-    display: inline-block;
-    margin-bottom: 8px;
-    padding: 4px 10px;
-    font-size: 10px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-}
-
-.header-title {
-    margin: 0 0 6px;
-    font-family: 'Georgia', serif;
-    font-size: 26px;
-}
-
-.header-subtitle {
-    margin: 0;
-    color: rgba(255, 255, 255, 0.82);
-    font-size: 13px;
-}
-
-.exit-btn,
-.primary-btn {
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: inherit;
-}
-
-.exit-btn {
-    align-self: flex-start;
-    padding: 10px 16px;
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
-}
-
-.preferencias-main {
-    max-width: 980px;
-    margin: 0 auto;
-    padding: 24px;
-}
-
-.loading-state,
-.step-card,
-.success-card {
-    background: #fff;
-    border: 1px solid #e0e0e0;
-    border-radius: 6px;
-    padding: 24px;
-}
-
-.step-phase {
-    display: inline-block;
-    margin-bottom: 10px;
-    padding: 4px 10px;
-    background: #eef3ff;
-    color: #2c5282;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-}
-
-.step-title,
-.success-title {
-    margin: 0 0 8px;
-    font-family: 'Georgia', serif;
-    font-size: 28px;
-    color: #1a1a1a;
-}
-
-.step-description,
-.success-text {
-    margin: 0 0 18px;
-    color: #555;
-    line-height: 1.6;
-}
-
-.selection-summary {
-    margin-bottom: 18px;
-    font-size: 14px;
-    color: #2c5282;
-}
-
-.question-list {
-    display: grid;
-    gap: 12px;
-}
-
-.question-item {
-    width: 100%;
-    padding: 16px;
-    border: 1px solid #d9dde3;
-    border-radius: 6px;
-    background: #fff;
-    text-align: left;
-    transition: all 0.2s ease;
-}
-
-.question-item:hover:not(:disabled) {
-    border-color: #2c5282;
-    background: #f8fbff;
-}
-
-.question-item.selected {
-    border-color: #2c5282;
-    background: #eef4ff;
-}
-
-.question-item:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-}
-
-.question-meta {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 8px;
-    font-size: 12px;
-}
-
-.question-id {
-    font-family: 'Courier New', monospace;
-    color: #2c5282;
-    font-weight: 700;
-}
-
-.question-weight {
-    color: #666;
-}
-
-.question-text {
-    display: block;
-    color: #222;
-    line-height: 1.5;
-}
-
-.actions {
-    margin-top: 20px;
-    display: flex;
-    justify-content: flex-end;
-}
-
-.primary-btn {
-    min-width: 220px;
-    padding: 14px 20px;
-    background: #2c5282;
-    color: #fff;
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.primary-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.saving-box {
-    margin-top: 16px;
-    padding: 12px 14px;
-    background: #f8fbff;
-    border: 1px solid #d9e6ff;
-    color: #2c5282;
-    border-radius: 4px;
-}
-
-.success-card {
-    text-align: center;
-}
-
-.success-icon {
-    width: 64px;
-    height: 64px;
-    margin: 0 auto 16px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #e6f4ea;
-    color: #34a853;
-    font-size: 28px;
-    font-weight: 700;
-}
-
-.spinner {
-    width: 16px;
-    height: 16px;
-    display: inline-block;
-    border: 2px solid rgba(255, 255, 255, 0.4);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-@media (max-width: 720px) {
-    .header-top {
-        flex-direction: column;
-    }
-
-    .preferencias-main {
-        padding: 16px;
-    }
-
-    .step-title,
-    .success-title {
-        font-size: 22px;
-    }
-
-    .question-meta {
-        flex-direction: column;
-        gap: 4px;
-    }
-
-    .actions {
-        justify-content: stretch;
-    }
-
-    .primary-btn {
-        width: 100%;
-        min-width: 0;
-    }
-}
-
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
-    padding: 20px;
-}
-
-.modal-content {
-    background: #fff;
-    border-radius: 12px;
-    padding: 32px;
-    max-width: 480px;
-    width: 100%;
-    text-align: center;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-}
-
-.modal-badge {
-    display: inline-block;
-    margin-bottom: 16px;
-    padding: 8px 16px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-}
-
-.badge-mais {
-    background: #d4edda;
-    color: #155724;
-    border: 2px solid #28a745;
-}
-
-.badge-menos {
-    background: #f8d7da;
-    color: #721c24;
-    border: 2px solid #dc3545;
-}
-
-.modal-title {
-    margin: 0 0 12px;
-    font-family: 'Georgia', serif;
-    font-size: 24px;
-    color: #1a1a1a;
-}
-
-.modal-description {
-    margin: 0 0 20px;
-    color: #555;
-    line-height: 1.6;
-    font-size: 15px;
-}
-
-.modal-instruction {
-    margin: 0 0 28px;
-    padding: 14px;
-    background: #f8fbff;
-    border-radius: 8px;
-    color: #2c5282;
-    font-size: 14px;
-}
-
-.modal-instruction strong {
-    color: #1a365d;
-}
-
-.modal-btn {
-    width: 100%;
-    max-width: 280px;
-    padding: 14px 24px;
-    background: #2c5282;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s ease;
-}
-
-.modal-btn:hover {
-    background: #1a365d;
-}
+.preferencias-container { min-height: 100vh; background: #f8f9fa; }
+.navbar { background: #2c5282; color: #fff; padding: 6px 24px; }
+.navbar-row { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.navbar-badge { flex-shrink: 0; padding: 2px 6px; font-size: 8px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid rgba(255,255,255,0.35); border-radius: 2px; line-height: 1.4; }
+.navbar-btn { flex-shrink: 0; padding: 3px 8px; background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; line-height: 1.3; font-family: inherit; }
+.navbar-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2); }
+.preferencias-main { margin: 0 auto; }
+.loading-state, .step-card, .success-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 16px; }
+.step-phase { display: inline-block; margin-bottom: 6px; padding: 3px 8px; background: #eef3ff; color: #2c5282; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.step-title, .success-title { margin: 0; font-family: 'Georgia', serif; font-size: 18px; color: #1a1a1a; }
+.step-description, .success-text { margin: 4px 0 10px; color: #555; font-size: 13px; line-height: 1.5; }
+.title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.selection-summary { font-size: 13px; color: #555; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.max-hint { font-size: 11px; color: #b8860b; background: #fffdf0; padding: 3px 8px; border-radius: 3px; }
+.question-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.question-card { display: flex; align-items: flex-start; gap: 12px; min-height: 72px; padding: 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fff; text-align: left; cursor: pointer; transition: all 0.15s ease; font-family: inherit; }
+.question-card:hover:not(.disabled):not(.dimmed) { border-color: #34a853; box-shadow: 0 2px 12px rgba(52, 168, 83, 0.08); }
+.question-card.disabled { opacity: 0.5; cursor: not-allowed; }
+.question-card.dimmed { opacity: 0.35; cursor: not-allowed; }
+.card-dot { flex-shrink: 0; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; border: 2px solid #d0d5dd; background: #fff; transition: all 0.15s ease; }
+.card-dot.checked { border-color: #34a853; background: #34a853; }
+.card-text { flex: 1; font-size: 13px; color: #222; line-height: 1.5; }
+.primary-btn { min-width: 180px; padding: 12px 18px; background: #2c5282; color: #fff; font-size: 14px; font-weight: 600; }
+.primary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.saving-box { margin-top: 16px; padding: 12px 14px; background: #f8fbff; border: 1px solid #d9e6ff; color: #2c5282; border-radius: 4px; }
+.success-card { text-align: center; }
+.success-icon { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #e6f4ea; color: #34a853; font-size: 28px; font-weight: 700; }
+.spinner { width: 16px; height: 16px; display: inline-block; border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+@media (max-width: 720px) { .preferencias-main { padding: 12px; } .question-grid { grid-template-columns: 1fr; } .actions { justify-content: stretch; } .primary-btn { width: 100%; min-width: 0; } }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
+.modal-content { background: #fff; border-radius: 12px; padding: 32px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2); }
+.modal-badge { display: inline-block; margin-bottom: 16px; padding: 8px 16px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.badge-ranking { background: #eef3ff; color: #2c5282; border: 2px solid #2c5282; }
+.modal-title { margin: 0 0 12px; font-family: 'Georgia', serif; font-size: 24px; color: #1a1a1a; }
+.modal-description { margin: 0 0 20px; color: #555; line-height: 1.6; font-size: 15px; }
+.modal-instruction { margin: 0 0 28px; padding: 14px; background: #f8fbff; border-radius: 8px; color: #2c5282; font-size: 14px; }
+.modal-btn { width: 100%; max-width: 280px; padding: 14px 24px; background: #2c5282; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s ease; }
+.modal-btn:hover { background: #1a365d; }
 </style>

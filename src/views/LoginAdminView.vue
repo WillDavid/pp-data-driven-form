@@ -1,4 +1,6 @@
 <script>
+import { api } from '../services/api';
+
 export default {
     name: 'LoginAdminView',
     data() {
@@ -20,14 +22,11 @@ export default {
             this.error = '';
 
             try {
-                if (this.email === 'admin@sistema.com' && this.password === 'admin123') {
-                    localStorage.setItem('adminLogado', 'true');
-                    this.$router.push('/admin');
-                } else {
-                    this.error = 'Credenciais inválidas';
-                }
+                await api.loginAdmin(this.email, this.password);
+                localStorage.setItem('adminLogado', 'true');
+                this.$router.push('/admin');
             } catch (e) {
-                this.error = 'Erro ao fazer login';
+                this.error = e?.message || 'Erro ao fazer login';
             } finally {
                 this.loading = false;
             }
@@ -57,12 +56,12 @@ export default {
 
             <form @submit.prevent="login" class="login-form">
                 <div class="form-group">
-                    <label for="email">Endereço de e-mail</label>
+                    <label for="email">Usuário</label>
                     <input
                         id="email"
                         v-model="email"
-                        type="email"
-                        placeholder="admin@sistema.com"
+                        type="text"
+                        placeholder="admin"
                         class="form-input"
                     />
                 </div>
@@ -84,10 +83,6 @@ export default {
                     {{ loading ? 'Autenticando...' : 'Entrar' }}
                 </button>
             </form>
-
-            <div class="login-hint">
-                <p>Credenciais de teste: admin@sistema.com / admin123</p>
-            </div>
         </div>
     </div>
 </template>
@@ -216,16 +211,4 @@ export default {
     cursor: not-allowed;
 }
 
-.login-hint {
-    margin-top: 24px;
-    padding-top: 16px;
-    border-top: 1px solid #eee;
-    text-align: center;
-}
-
-.login-hint p {
-    font-size: 11px;
-    color: #888;
-    margin: 0;
-}
 </style>

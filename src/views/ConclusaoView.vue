@@ -55,7 +55,7 @@ export default {
         </div>
 
         <footer class="conclusao-footer">
-            <p>Pesquisa Corporativa - Coleta de Dados</p>
+            <p>Ferramenta de avaliação da cultura organizacional - Coleta de Dados</p>
         </footer>
     </div>
 </template>

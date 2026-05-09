@@ -1,5 +1,5 @@
 <script>
-import { supabase } from '../supabase';
+import { api } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import { useQuestionnaireStore } from '../stores/questionnaire';
 
@@ -18,14 +18,14 @@ export default {
         };
     },
     async mounted() {
-        this.log('=== DEBUG SUPABASE ===');
+        this.log('=== DEBUG API ===');
 
-        this.log('1. Testando tabelas...');
+        this.log('1. Testando endpoints...');
 
-        await this.testTable('setores');
-        await this.testTable('senhas');
-        await this.testTable('perguntas_opcoes');
-        await this.testTable('respostas_opcoes');
+        await this.testEndpoint('Health', () => api.health());
+        await this.testEndpoint('Setores', () => api.listSetores());
+        await this.testEndpoint('Perguntas opcoes', () => api.listPerguntasOpcoes());
+        await this.testEndpoint('Perguntas preferencias', () => api.listPerguntasPreferencias());
 
         this.log('');
         this.log('2. Estado atual:');
@@ -37,51 +37,29 @@ export default {
         log(msg) {
             this.debugInfo.push(msg);
         },
-        async testTable(tableName) {
+        async testEndpoint(label, fn) {
             try {
-                const { data, error } = await supabase
-                    .from(tableName)
-                    .select('*')
-                    .limit(1);
-
-                if (error) {
-                    this.log(`❌ ${tableName}: ${error.message}`);
-                } else {
-                    this.log(`✅ ${tableName}: OK (${data ? data.length : 0} registros)`);
-                }
+                const data = await fn();
+                const total = Array.isArray(data) ? data.length : 1;
+                this.log(`OK ${label}: ${total} registro(s)`);
             } catch (e) {
-                this.log(`❌ ${tableName}: ${e.message}`);
+                this.log(`ERRO ${label}: ${e.message}`);
             }
         },
-        async testInsert() {
+        async testStatus() {
             if (!this.authStore.senhaId) {
                 alert('Faça login primeiro');
                 return;
             }
 
             this.log('');
-            this.log('3. Testando inserção...');
+            this.log('3. Testando status do respondente...');
 
-            const testData = {
-                senha_id: this.authStore.senhaId,
-                setor_id: this.authStore.setorId,
-                pergunta_id: 'TESTE1',
-                resposta: 1,
-                data_resposta: new Date().toISOString()
-            };
-
-            this.log('Dados: ' + JSON.stringify(testData));
-
-            const { data, error } = await supabase
-                .from('respostas_opcoes')
-                .insert([testData])
-                .select();
-
-            if (error) {
-                this.log('❌ ERRO: ' + error.message);
-                this.log('Código: ' + error.code);
-            } else {
-                this.log('✅ SUCESSO! Dados inseridos: ' + JSON.stringify(data));
+            try {
+                const data = await api.getRespondenteStatus(this.authStore.senhaId);
+                this.log('OK Status: ' + JSON.stringify(data));
+            } catch (error) {
+                this.log('ERRO Status: ' + error.message);
             }
         }
     }
@@ -93,10 +71,10 @@ export default {
         <h2 style="color: #fff;">Debug - Teste de Banco</h2>
 
         <button
-            @click="testInsert"
+            @click="testStatus"
             style="padding: 12px 24px; background: #2c5282; color: #fff; border: none; cursor: pointer; font-size: 14px;"
         >
-            Testar Inserção
+            Testar Status
         </button>
 
         <pre style="background: #000; padding: 16px; border-radius: 4px; overflow-x: auto;">
@@ -104,7 +82,7 @@ export default {
         </pre>
 
         <p style="color: #666;">
-            Abra o console do navegador (F12) para ver mais logs
+            Abra o console do navegador (F12) para ver mais logs.
         </p>
     </div>
 </template>

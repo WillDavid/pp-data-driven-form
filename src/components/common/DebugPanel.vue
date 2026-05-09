@@ -1,5 +1,5 @@
 <script>
-import { supabase } from '../../supabase';
+import { api } from '../../services/api';
 
 export default {
     name: 'DebugPanel',
@@ -14,56 +14,30 @@ export default {
             this.loading = true;
             this.debugInfo = [];
 
-            this.log('Testando conexão com Supabase...');
+            this.log('Testando conexão com API...');
 
             try {
-                const { data: perguntas, error: err1 } = await supabase
-                    .from('perguntas_opcoes')
-                    .select('*')
-                    .order('ordem');
-
-                if (err1) {
-                    this.log('❌ Erro ao buscar perguntas: ' + err1.message);
-                } else {
-                    this.log(`✅ Perguntas carregadas: ${perguntas ? perguntas.length : 0}`);
-                    if (perguntas && perguntas.length > 0) {
-                        this.log('Primeira pergunta: ' + JSON.stringify(perguntas[0]));
-                    }
+                const perguntas = await api.listPerguntasOpcoes();
+                this.log(`OK Perguntas carregadas: ${perguntas ? perguntas.length : 0}`);
+                if (perguntas && perguntas.length > 0) {
+                    this.log('Primeira pergunta: ' + JSON.stringify(perguntas[0]));
                 }
             } catch (e) {
-                this.log('❌ Erro: ' + e.message);
+                this.log('ERRO Perguntas: ' + e.message);
             }
 
             try {
-                const { data: setores, error: err2 } = await supabase
-                    .from('setores')
-                    .select('*');
-
-                if (err2) {
-                    this.log('❌ Erro ao buscar setores: ' + err2.message);
-                } else {
-                    this.log(`✅ Setores encontrados: ${setores ? setores.length : 0}`);
-                }
+                const setores = await api.listSetores();
+                this.log(`OK Setores encontrados: ${setores ? setores.length : 0}`);
             } catch (e) {
-                this.log('❌ Erro: ' + e.message);
+                this.log('ERRO Setores: ' + e.message);
             }
 
             try {
-                const { data: senhas, error: err3 } = await supabase
-                    .from('senhas')
-                    .select('*')
-                    .limit(3);
-
-                if (err3) {
-                    this.log('❌ Erro ao buscar senhas: ' + err3.message);
-                } else {
-                    this.log(`✅ Senhas encontradas: ${senhas ? senhas.length : 0}`);
-                    if (senhas && senhas.length > 0) {
-                        this.log('Primeira senha: ' + JSON.stringify(senhas[0]));
-                    }
-                }
+                await api.health();
+                this.log('OK Health check');
             } catch (e) {
-                this.log('❌ Erro: ' + e.message);
+                this.log('ERRO Health: ' + e.message);
             }
 
             this.loading = false;
@@ -83,12 +57,12 @@ export default {
 
 <template>
     <div class="debug-panel">
-        <h3>Debug Supabase</h3>
+        <h3>Debug API</h3>
         <button @click="runTests" :disabled="loading">
             {{ loading ? 'Testando...' : 'Rodar Testes' }}
         </button>
         <div class="debug-logs">
-            <div v-for="(log, i) in debugInfo" :key="i" :class="['log-item', log.msg.includes('❌') ? 'error' : 'success']">
+            <div v-for="(log, i) in debugInfo" :key="i" :class="['log-item', log.msg.includes('ERRO') ? 'error' : 'success']">
                 <span class="log-time">{{ log.time }}</span>
                 <span class="log-msg">{{ log.msg }}</span>
             </div>

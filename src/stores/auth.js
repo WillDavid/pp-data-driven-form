@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { supabase } from '../supabase';
+import { api } from '../services/api';
 
 export const useAuthStore = defineStore('auth', {
     state: () => ({
@@ -9,36 +9,29 @@ export const useAuthStore = defineStore('auth', {
         setorId: null,
         setorNome: '',
         formularioOpcoesConcluido: false,
-        formularioPreferenciasConcluido: false
+        formularioPreferenciasConcluido: false,
+        formularioCulturaConcluido: false
     }),
 
     actions: {
-        async login(senha) {
-            const { data, error } = await supabase
-                .from('senhas')
-                .select('*, setores(nome)')
-                .eq('senha', senha.toUpperCase())
-                .single();
-
-            if (error || !data) {
-                throw new Error('Senha inválida');
-            }
+        async login(cpf) {
+            const data = await api.loginRespondente(cpf);
 
             this.isLoggedIn = true;
-            this.senhaId = data.id;
-            this.senhaCodigo = data.senha;
+            this.senhaId = data.senha_id;
+            this.senhaCodigo = data.senha_codigo;
             this.setorId = data.setor_id;
-            this.setorNome = data.setores?.nome || '';
+            this.setorNome = data.setor_nome || '';
             this.formularioOpcoesConcluido = Boolean(data.formulario_opcoes_concluido);
             this.formularioPreferenciasConcluido = Boolean(data.formulario_preferencias_concluido);
+            this.formularioCulturaConcluido = Boolean(data.formulario_cultura_concluido);
 
             localStorage.setItem('respondenteLogado', 'true');
-            localStorage.setItem('senhaId', data.id);
-            localStorage.setItem('senhaCodigo', data.senha);
+            localStorage.setItem('senhaId', data.senha_id);
+            localStorage.setItem('senhaCodigo', data.senha_codigo);
             localStorage.setItem('setorId', data.setor_id);
             localStorage.setItem('setorNome', this.setorNome);
-            localStorage.setItem('formularioOpcoesConcluido', String(this.formularioOpcoesConcluido));
-            localStorage.setItem('formularioPreferenciasConcluido', String(this.formularioPreferenciasConcluido));
+            this.limparStatusFormulariosPersistidos();
 
             return data;
         },
@@ -51,8 +44,10 @@ export const useAuthStore = defineStore('auth', {
                 this.senhaCodigo = localStorage.getItem('senhaCodigo') || '';
                 this.setorId = localStorage.getItem('setorId');
                 this.setorNome = localStorage.getItem('setorNome') || '';
-                this.formularioOpcoesConcluido = localStorage.getItem('formularioOpcoesConcluido') === 'true';
-                this.formularioPreferenciasConcluido = localStorage.getItem('formularioPreferenciasConcluido') === 'true';
+                this.formularioOpcoesConcluido = false;
+                this.formularioPreferenciasConcluido = false;
+                this.formularioCulturaConcluido = false;
+                this.limparStatusFormulariosPersistidos();
             }
         },
 
@@ -61,40 +56,49 @@ export const useAuthStore = defineStore('auth', {
                 return;
             }
 
-            const { data, error } = await supabase
-                .from('senhas')
-                .select('senha, formulario_opcoes_concluido, formulario_preferencias_concluido, setores(nome)')
-                .eq('id', this.senhaId)
-                .single();
-
-            if (error || !data) {
+            let data = null;
+            try {
+                data = await api.getRespondenteStatus(this.senhaId);
+            } catch (error) {
                 return;
             }
 
-            this.senhaCodigo = data.senha || this.senhaCodigo;
-            this.setorNome = data.setores?.nome || this.setorNome;
+            this.senhaCodigo = data.senha_codigo || this.senhaCodigo;
+            this.setorNome = data.setor_nome || this.setorNome;
+            this.setorId = data.setor_id || this.setorId;
             this.formularioOpcoesConcluido = Boolean(data.formulario_opcoes_concluido);
             this.formularioPreferenciasConcluido = Boolean(data.formulario_preferencias_concluido);
+            this.formularioCulturaConcluido = Boolean(data.formulario_cultura_concluido);
 
             localStorage.setItem('senhaCodigo', this.senhaCodigo);
+            localStorage.setItem('setorId', this.setorId);
             localStorage.setItem('setorNome', this.setorNome);
-            localStorage.setItem('formularioOpcoesConcluido', String(this.formularioOpcoesConcluido));
-            localStorage.setItem('formularioPreferenciasConcluido', String(this.formularioPreferenciasConcluido));
+            this.limparStatusFormulariosPersistidos();
         },
 
         setFormularioStatus(formulario, concluido) {
             if (formulario === 'opcoes') {
                 this.formularioOpcoesConcluido = concluido;
-                localStorage.setItem('formularioOpcoesConcluido', String(concluido));
             }
 
             if (formulario === 'preferencias') {
                 this.formularioPreferenciasConcluido = concluido;
-                localStorage.setItem('formularioPreferenciasConcluido', String(concluido));
+            }
+
+            if (formulario === 'cultura') {
+                this.formularioCulturaConcluido = concluido;
             }
         },
 
+        limparStatusFormulariosPersistidos() {
+            localStorage.removeItem('formularioOpcoesConcluido');
+            localStorage.removeItem('formularioPreferenciasConcluido');
+            localStorage.removeItem('formularioCulturaConcluido');
+        },
+
         logout() {
+            const sid = this.senhaId;
+
             this.isLoggedIn = false;
             this.senhaId = null;
             this.senhaCodigo = '';
@@ -102,15 +106,21 @@ export const useAuthStore = defineStore('auth', {
             this.setorNome = '';
             this.formularioOpcoesConcluido = false;
             this.formularioPreferenciasConcluido = false;
+            this.formularioCulturaConcluido = false;
 
             localStorage.removeItem('respondenteLogado');
             localStorage.removeItem('senhaId');
             localStorage.removeItem('senhaCodigo');
             localStorage.removeItem('setorId');
             localStorage.removeItem('setorNome');
-            localStorage.removeItem('formularioOpcoesConcluido');
-            localStorage.removeItem('formularioPreferenciasConcluido');
+            this.limparStatusFormulariosPersistidos();
             localStorage.removeItem('progressoFormulario');
+
+            if (sid) {
+                for (const fid of ['cultura', 'opcoes', 'preferencias']) {
+                    localStorage.removeItem(`progresso_${sid}_${fid}`);
+                }
+            }
         }
     }
 });

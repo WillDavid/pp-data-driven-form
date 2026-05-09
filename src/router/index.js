@@ -7,6 +7,7 @@ import DashboardView from '../views/DashboardView.vue';
 import FormularioView from '../views/FormularioView.vue';
 import PreferenciasView from '../views/PreferenciasView.vue';
 import ConclusaoView from '../views/ConclusaoView.vue';
+import CulturaView from '../views/CulturaView.vue';
 import DebugView from '../views/DebugView.vue';
 
 const routes = [
@@ -53,6 +54,11 @@ const routes = [
         path: '/conclusao',
         name: 'Conclusao',
         component: ConclusaoView
+    },
+    {
+        path: '/cultura',
+        name: 'Cultura',
+        component: CulturaView
     },
     {
         path: '/debug',

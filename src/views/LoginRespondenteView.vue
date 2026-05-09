@@ -1,6 +1,37 @@
 <script>
 import { useAuthStore } from '../stores/auth';
 
+function isValidCPF(cpf) {
+    const digits = cpf.replace(/\D/g, '');
+    if (digits.length !== 11) return false;
+    if (/^(\d)\1{10}$/.test(digits)) return false;
+
+    let sum, rest;
+
+    sum = 0;
+    for (let i = 1; i <= 9; i++) sum += parseInt(digits[i - 1]) * (11 - i);
+    rest = (sum * 10) % 11;
+    if (rest === 10) rest = 0;
+    if (rest !== parseInt(digits[9])) return false;
+
+    sum = 0;
+    for (let i = 1; i <= 10; i++) sum += parseInt(digits[i - 1]) * (12 - i);
+    rest = (sum * 10) % 11;
+    if (rest === 10) rest = 0;
+    if (rest !== parseInt(digits[10])) return false;
+
+    return true;
+}
+
+function formatCPF(value) {
+    const digits = value.replace(/\D/g, '').slice(0, 11);
+    let result = digits;
+    if (digits.length > 3) result = digits.slice(0, 3) + '.' + digits.slice(3);
+    if (digits.length > 6) result = result.slice(0, 7) + '.' + result.slice(7);
+    if (digits.length > 9) result = result.slice(0, 11) + '-' + result.slice(11);
+    return result;
+}
+
 export default {
     name: 'LoginRespondenteView',
     setup() {
@@ -8,15 +39,24 @@ export default {
     },
     data() {
         return {
-            password: '',
+            cpf: '',
             loading: false,
             error: ''
         };
     },
+    computed: {
+        cpfValido() {
+            return this.cpf.replace(/\D/g, '').length === 11 && isValidCPF(this.cpf);
+        }
+    },
     methods: {
+        onCpfInput(e) {
+            this.cpf = formatCPF(e.target.value);
+            this.error = '';
+        },
         async login() {
-            if (!this.password) {
-                this.error = 'Digite a senha de acesso';
+            if (!this.cpfValido) {
+                this.error = 'CPF invalido. Informe um CPF valido.';
                 return;
             }
 
@@ -24,10 +64,15 @@ export default {
             this.error = '';
 
             try {
-                await this.authStore.login(this.password);
+                await this.authStore.login(this.cpf);
                 this.$router.push('/participante');
             } catch (e) {
-                this.error = 'Senha inválida ou não encontrada';
+                const msg = e?.message || '';
+                if (msg.includes('403') || msg.includes('nao cadastrado') || msg.includes('nao encontrado')) {
+                    this.error = 'CPF nao cadastrado. Apenas funcionarios da empresa podem participar.';
+                } else {
+                    this.error = msg || 'Erro ao acessar. Verifique os dados.';
+                }
             } finally {
                 this.loading = false;
             }
@@ -52,27 +97,31 @@ export default {
 
             <div class="login-header">
                 <h1 class="login-title">Acesso Respondente</h1>
-                <p class="login-subtitle">Identificação para coleta de dados</p>
+                <p class="login-subtitle">Informe seu CPF para comecar a pesquisa</p>
             </div>
 
             <form @submit.prevent="login" class="login-form">
                 <div class="form-group">
-                    <label for="password">Senha de Acesso</label>
+                    <label for="cpf">CPF</label>
                     <input
-                        id="password"
-                        v-model="password"
+                        id="cpf"
+                        :value="cpf"
+                        @input="onCpfInput"
                         type="text"
-                        placeholder="ABC12345"
+                        inputmode="numeric"
+                        placeholder="000.000.000-00"
                         class="form-input"
-                        maxlength="8"
+                        maxlength="14"
+                        autocomplete="off"
                     />
-                    <p class="form-hint">Senha de 8 caracteres alfanuméricos</p>
+                    <p v-if="cpf.length > 0 && !cpfValido" class="form-hint error-hint">CPF invalido</p>
+                    <p v-else-if="cpfValido" class="form-hint valid-hint">CPF valido</p>
                 </div>
 
                 <p v-if="error" class="error-message">{{ error }}</p>
 
-                <button type="submit" class="login-btn" :disabled="loading">
-                    {{ loading ? 'Verificando...' : 'Acessar Formulários' }}
+                <button type="submit" class="login-btn" :disabled="loading || !cpfValido">
+                    {{ loading ? 'Acessando...' : 'Acessar Formularios' }}
                 </button>
             </form>
         </div>
@@ -163,8 +212,6 @@ export default {
     border-radius: 3px;
     font-size: 14px;
     font-family: inherit;
-    text-transform: uppercase;
-    letter-spacing: 2px;
     transition: border-color 0.2s;
     background: #fafafa;
 }
@@ -179,6 +226,14 @@ export default {
     font-size: 11px;
     color: #888;
     margin: 4px 0 0 0;
+}
+
+.error-hint {
+    color: #b00020;
+}
+
+.valid-hint {
+    color: #1f6f43;
 }
 
 .error-message {

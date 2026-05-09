@@ -29,7 +29,12 @@ export default {
             return this.questionnaireStore.getPerguntaAtual;
         },
         progresso() {
-            return this.questionnaireStore.getProgresso;
+            const total = this.totalPerguntas;
+            if (!total) return 0;
+            if (this.finalized || this.showingSuccess) return 100;
+            const idx = this.perguntaIndex;
+            if (idx >= total - 1) return Math.round(((total - 1) / total) * 100);
+            return Math.round(((idx + 1) / total) * 100);
         },
         totalPerguntas() {
             return this.questionnaireStore.getTotalPerguntas;
@@ -101,7 +106,8 @@ export default {
                     this.authStore.setFormularioStatus('opcoes', true);
                     this.savingMessage = 'Verificando registro das respostas...';
                     await new Promise(r => setTimeout(r, 500));
-                    this.showingSuccess = true;
+                    this.questionnaireStore.resetFormulario();
+                    this.$router.push(this.questionnaireStore.getProximoFormularioPendente());
                 } else {
                     throw new Error('Falha ao enviar');
                 }
@@ -117,12 +123,16 @@ export default {
             this.showingSuccess = false;
             this.questionnaireStore.resetFormulario();
             this.questionnaireStore.carregarStatusFormularios(this.authStore.senhaId);
-            this.$router.push('/participante');
+            this.$router.push(this.questionnaireStore.getProximoFormularioPendente());
         },
         sair() {
             this.questionnaireStore.resetFormulario();
             this.authStore.logout();
             this.$router.push('/');
+        },
+        voltar() {
+            this.questionnaireStore.resetFormulario();
+            this.$router.push('/participante');
         }
     }
 };
@@ -130,13 +140,11 @@ export default {
 
 <template>
     <div class="form-container">
-        <header class="form-header">
-            <div class="header-top">
-                <span class="form-badge">Questionário</span>
-                <button class="exit-btn" @click="sair" :disabled="loading">Sair</button>
+        <header class="navbar">
+            <div class="navbar-row">
+                <button class="navbar-btn" @click="voltar" :disabled="loading">← Voltar</button>
+                <span class="navbar-badge">Opções</span>
             </div>
-            <h1 class="form-title">{{ formulario?.titulo }}</h1>
-            <p class="form-subtitle">Setor: {{ authStore.setorNome }}</p>
         </header>
 
         <div class="form-content">
@@ -211,71 +219,15 @@ export default {
 .form-container {
     min-height: 100vh;
     background: #f8f9fa;
-    display: flex;
-    flex-direction: column;
 }
 
-.form-header {
-    background: #2c5282;
-    padding: 20px;
-}
-
-.header-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-}
-
-.form-badge {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.7);
-    padding: 4px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.exit-btn {
-    padding: 6px 14px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 3px;
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.8);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.2s;
-}
-
-.exit-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.2);
-    color: #ffffff;
-}
-
-.exit-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.form-title {
-    font-family: 'Georgia', serif;
-    font-size: 20px;
-    font-weight: 600;
-    color: #ffffff;
-    margin: 0 0 6px 0;
-}
-
-.form-subtitle {
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.7);
-    margin: 0;
-}
+.navbar { background: #2c5282; color: #fff; padding: 6px 24px; }
+.navbar-row { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.navbar-badge { flex-shrink: 0; padding: 2px 6px; font-size: 8px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid rgba(255,255,255,0.35); border-radius: 2px; line-height: 1.4; }
+.navbar-btn { flex-shrink: 0; padding: 3px 8px; background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; line-height: 1.3; font-family: inherit; }
+.navbar-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2); }
 
 .form-content {
-    flex: 1;
     max-width: 700px;
     width: 100%;
     margin: 0 auto;
